@@ -1,0 +1,8 @@
+PIDFILE: inspiration.pid
+USER: chris.henderson
+access_token: Secret
+access_token_secret: Big Secret
+consumer_key: Bigger Secret
+consumer_secret: Biggest Secret
+quotes: [No peeking]
+recipient: JillianTessa
