@@ -27,6 +27,7 @@ class Tweet(object):
     def __call__(self):
         try:
             self.INSPIRATION.update_status(status=unicode(self))
+            Config.age(unicode(self))
         except:
             #===================================================================
             # Probably a network error of some kind. There are a number
@@ -42,6 +43,7 @@ class Tweet(object):
         if len(self.TWEETS) is 0:
             self.TWEETS = self.AGED_TWEETS
             self.AGED_TWEETS = []
+            Config.reload()
         tweet = self.TWEETS.pop(randrange(len(self.TWEETS)))
         self.AGED_TWEETS.append(tweet)
         return tweet

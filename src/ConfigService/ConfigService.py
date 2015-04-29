@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from functools import wraps
-from yaml import load
+from yaml import load, dump
 from os.path import dirname
 from pwd import getpwnam
 
@@ -16,20 +16,43 @@ class ConfigService(object):
 
     def __init__(self):
         self.config = None
+        home = dirname(dirname(dirname(__file__)))
+        self.configFile = '{HOME}/etc/inspiration.yaml'.format(HOME=home)
+        self.tweeted = '{HOME}/etc/tweeted.yaml'.format(HOME=home)
 
     def __iter__(self):
         for section in self.config:
             yield self.config[section]
 
     def loadConfig(self):
-        home = dirname(dirname(dirname(__file__)))
-        configFile = '{HOME}/etc/inspiration.yaml'.format(HOME=home)
-        with open(configFile) as conf:
+        with open(self.configFile) as conf:
             self.config = load(conf)
     
     def reload(self):
-        self.loadConfig()
-    
+        with open(self.tweeted, 'r') as aged:
+            tweeted = load(aged)
+        with open(self.tweeted, 'w') as aged:
+            dump([], aged)
+        self.config['quotes'] = tweeted
+        self.save()
+
+    def save(self):
+        with open(self.configFile, 'w') as conf:
+            dump(self.config, conf)
+
+    def age(self, message):
+        with open(self.tweeted, 'r') as aged:
+            tweeted = load(aged)
+        tweeted.append(message)
+        with open(self.tweeted, 'w') as aged:
+            dump(tweeted, aged)
+        self.remove(message)
+
+    def remove(self, message):
+        index = self.config['quotes'].index(message)
+        self.config['quotes'].pop(index)
+        self.save()
+
     @LazyLoad
     def recipient(self):
         return self.config.get('recipient')
