@@ -23,6 +23,8 @@ class Event(db.Model):
     recipient = db.Column(db.String(15))
     pub_date = db.Column(db.DateTime, nullable=False)
     consumed = db.Column(db.Boolean)
+    repeated = db.Column(db.Boolean)
+    repetitions = db.Column(db.Integer)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('events', lazy='dynamic'))
     tweet_id = db.Column(db.Integer, db.ForeignKey('tweet.id'), nullable=False)
@@ -33,15 +35,40 @@ class Event(db.Model):
     series = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
     shuffle = db.Column(db.Boolean)
 
-    def __init__(self, user, tweet, pub_date, recipient=None, consumed=False, playlist=None, shuffle=False, series=None):
+    def __init__(self, user, tweet, pub_date, repeated=False, repetitions=0, maxRepetitions=0, recipient=None, consumed=False, playlist=None, shuffle=False, series=None):
         self.user = user
         self.tweet = tweet
         self.pub_date = pub_date
+        self.repeated = repeated
+        self.repetitions = repetitions
+        self.maxRepetitions = maxRepetitions
         self.recipient = recipient
         self.consumed = consumed
         self.playlist = playlist
         self.shuffle = shuffle
         self.series = series
+    
+    def fire(self):
+        tweet(self.tweet.content)
+        self.consumed = True
+        if self.repeated and self.maxRepetitions and self.repetitions < self.maxRepetitions:
+            self.replicate()
+
+    def replicate(self):
+        event = Event(
+            user=self.user,
+            tweet=self.tweet,
+            pub_date=self.pub_date + self.delta,
+            recipient=self.recipient,
+            repetitions=self.repetitions + 1,
+            maxReptitions=self.maxRepetitions,
+            playlist=self.playlist,
+            shuffle=self.shuffle,
+            series=self.series
+            )
+        db.session.add(event)
+        db.session.commit()
+
 
 class Tweet(db.Model):
 
