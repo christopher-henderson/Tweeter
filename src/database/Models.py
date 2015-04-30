@@ -1,10 +1,12 @@
 from os.path import dirname
+import tweepy
 from flask import Flask
 from flask.ext.sqlalchemy import SQLAlchemy
+from Scheduled import Scheduled
 
 home = dirname(dirname(__file__))
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////{HOME}/database/tweeter.db'.format(HOME=home)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////{HOME}/data/tweeter.db'.format(HOME=home)
 db = SQLAlchemy(app)
 
 class User(db.Model):
@@ -17,58 +19,21 @@ class User(db.Model):
         self.name = name
         self.email = email
     
-class Event(db.Model):
-
-    id = db.Column(db.Integer, primary_key=True)
-    recipient = db.Column(db.String(15))
-    pub_date = db.Column(db.DateTime, nullable=False)
-    consumed = db.Column(db.Boolean)
-    repeated = db.Column(db.Boolean)
-    repetitions = db.Column(db.Integer)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    user = db.relationship('User', backref=db.backref('events', lazy='dynamic'))
-    tweet_id = db.Column(db.Integer, db.ForeignKey('tweet.id'), nullable=False)
-    tweet = db.relationship('Tweet', backref=db.backref('events', lazy='dynamic'))
-    playlist_id = db.Column(db.Integer, db.ForeignKey('playlist.id'))
-    playlist = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
-    series_id = db.Column(db.Integer, db.ForeignKey('series.id'))
-    series = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
-    shuffle = db.Column(db.Boolean)
-
-    def __init__(self, user, tweet, pub_date, repeated=False, repetitions=0, maxRepetitions=0, recipient=None, consumed=False, playlist=None, shuffle=False, series=None):
-        self.user = user
-        self.tweet = tweet
-        self.pub_date = pub_date
-        self.repeated = repeated
-        self.repetitions = repetitions
-        self.maxRepetitions = maxRepetitions
-        self.recipient = recipient
-        self.consumed = consumed
-        self.playlist = playlist
-        self.shuffle = shuffle
-        self.series = series
+    def tweet(self, event):
+        #=======================================================================
+        # Dispatcher to the appropriate API call
+        # based on the event type.
+        #=======================================================================
+        if event.messageType == Event.TWEET:
+            return self._tweet(event)
+        elif event.messageType == Event.DIRECT_MESSAGE:
+            return self._directMessage(event)
+        
+    def _tweet(self, event):
+        raise NotImplemented()
     
-    def fire(self):
-        tweet(self.tweet.content)
-        self.consumed = True
-        if self.repeated and self.maxRepetitions and self.repetitions < self.maxRepetitions:
-            self.replicate()
-
-    def replicate(self):
-        event = Event(
-            user=self.user,
-            tweet=self.tweet,
-            pub_date=self.pub_date + self.delta,
-            recipient=self.recipient,
-            repetitions=self.repetitions + 1,
-            maxReptitions=self.maxRepetitions,
-            playlist=self.playlist,
-            shuffle=self.shuffle,
-            series=self.series
-            )
-        db.session.add(event)
-        db.session.commit()
-
+    def _directMessage(self, event):
+        raise NotImplemented()
 
 class Tweet(db.Model):
 
@@ -103,3 +68,95 @@ class Series(db.Model):
     
     def __init__(self, user):
         self.user = user
+
+class Event(db.Model):
+
+    TWEET = 'tweet'
+    DIRECT_MESSAGE = 'direct_message'
+
+    id = db.Column(db.Integer, primary_key=True)
+    recipient = db.Column(db.String(15))
+    pub_date = db.Column(db.DateTime, nullable=False)
+    messageType = db.Column(db.String(14))
+    consumed = db.Column(db.Boolean)
+    repeated = db.Column(db.Boolean)
+    repetitions = db.Column(db.Integer)
+    maxRepetitions = db.Column(db.Integer)
+    endDate = db.Column(db.DateTime)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user = db.relationship('User', backref=db.backref('events', lazy='dynamic'))
+    tweet_id = db.Column(db.Integer, db.ForeignKey('tweet.id'), nullable=False)
+    tweet = db.relationship('Tweet', backref=db.backref('events', lazy='dynamic'))
+    playlist_id = db.Column(db.Integer, db.ForeignKey('playlist.id'))
+    playlist = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
+    series_id = db.Column(db.Integer, db.ForeignKey('series.id'))
+    series = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
+    shuffle = db.Column(db.Boolean)
+
+    def __init__(self, user, tweet, pub_date,repeated=False, messageType=Event.TWEET,
+                 repetitions=0, maxRepetitions=0, endDate=None, recipient=None,
+                 consumed=False, playlist=None, shuffle=False, series=None
+                 ):
+        self.user = user
+        self.tweet = tweet
+        self.pub_date = pub_date
+        self.messageType = messageType
+        self.repeated = repeated
+        self.repetitions = repetitions
+        self.maxRepetitions = maxRepetitions
+        self.endDate = endDate
+        self.recipient = recipient
+        self.consumed = consumed
+        self.playlist = playlist
+        self.shuffle = shuffle
+        self.series = series
+    
+    @Scheduled
+    def enqueue(self):
+        self.user.tweet(self)
+        self.consumed = True
+        if self.shouldReplicate:
+            self.replicate()
+
+    def replicate(self):
+        event = Event(
+            user=self.user,
+            tweet=self.tweet,
+            pub_date=self.pub_date + self.delta,
+            recipient=self.recipient,
+            repetitions=self.repetitions + 1,
+            maxReptitions=self.maxRepetitions,
+            endDate=self.endDate,
+            playlist=self.playlist,
+            shuffle=self.shuffle,
+            series=self.series
+            )
+        db.session.add(event)
+        db.session.commit()
+
+    @property
+    def shouldReplicate(self):
+        if self.maxRepetitions:
+            #===================================================================
+            # User defined a maximum number of repetitions for this event.
+            #===================================================================
+            return self.repetitions < self.maxRepetitions
+        elif self.endDate:
+            #===================================================================
+            # User defined an ending date for this event.
+            #===================================================================
+            return self.pub_date + self.delta <= self.endDate
+        elif self.repeated:
+            #===================================================================
+            # User defined this event to repeat forever.
+            #===================================================================
+            return True
+        else:
+            #===================================================================
+            # User defined this event as one time only.
+            #===================================================================
+            return False
+    
+    @property
+    def timeUntilEvent(self):
+        raise NotImplemented()
