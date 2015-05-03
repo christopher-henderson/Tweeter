@@ -124,6 +124,10 @@ class Event(db.Model):
         self.user.tweet(self)
         self.consumed = True
         if self.shouldReplicate:
+            #===================================================================
+            # Essentially a recursive database entry
+            # if the event has been schedule to reoccur.
+            #===================================================================
             self.replicate()
 
     def replicate(self):
@@ -166,4 +170,8 @@ class Event(db.Model):
     
     @property
     def timeUntilEvent(self):
+        #=======================================================================
+        # The total seconds between now (in the event's timezone) and the
+        # scheduled publication datetime.
+        #=======================================================================
         return (self.pub_date - datetime.now(self.pub_date.tzinfo)).total_seconds()
