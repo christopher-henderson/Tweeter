@@ -1,5 +1,6 @@
 from os.path import dirname
 import tweepy
+from datetime import datetime, timedelta
 from flask import Flask
 from flask.ext.sqlalchemy import SQLAlchemy
 from Scheduled import Scheduled
@@ -73,6 +74,11 @@ class Event(db.Model):
 
     TWEET = 'tweet'
     DIRECT_MESSAGE = 'direct_message'
+    DELTAS = {
+              'DAILY': timedelta(days=1),
+              'WEEKLY': timedelta(weeks=1),
+              'MONTHLY':  timedelta(months=1)
+              }
 
     id = db.Column(db.Integer, primary_key=True)
     recipient = db.Column(db.String(15))
@@ -80,6 +86,7 @@ class Event(db.Model):
     messageType = db.Column(db.String(14))
     consumed = db.Column(db.Boolean)
     repeated = db.Column(db.Boolean)
+    delta = db.Column(db.Integer)
     repetitions = db.Column(db.Integer)
     maxRepetitions = db.Column(db.Integer)
     endDate = db.Column(db.DateTime)
@@ -93,7 +100,7 @@ class Event(db.Model):
     series = db.relationship('Playlist', backref=db.backref('events', lazy='dynamic'))
     shuffle = db.Column(db.Boolean)
 
-    def __init__(self, user, tweet, pub_date,repeated=False, messageType=Event.TWEET,
+    def __init__(self, user, tweet, pub_date, repeated=False, delta=None, messageType=Event.TWEET,
                  repetitions=0, maxRepetitions=0, endDate=None, recipient=None,
                  consumed=False, playlist=None, shuffle=False, series=None
                  ):
@@ -102,6 +109,7 @@ class Event(db.Model):
         self.pub_date = pub_date
         self.messageType = messageType
         self.repeated = repeated
+        self.delta = delta
         self.repetitions = repetitions
         self.maxRepetitions = maxRepetitions
         self.endDate = endDate
@@ -123,10 +131,13 @@ class Event(db.Model):
             user=self.user,
             tweet=self.tweet,
             pub_date=self.pub_date + self.delta,
-            recipient=self.recipient,
+            repeated = self.repeated,
+            delta = self.delta,
+            messageType = self.messageType,
             repetitions=self.repetitions + 1,
-            maxReptitions=self.maxRepetitions,
+            maxRepetitions=self.maxRepetitions,
             endDate=self.endDate,
+            recipient=self.recipient,
             playlist=self.playlist,
             shuffle=self.shuffle,
             series=self.series
@@ -146,17 +157,13 @@ class Event(db.Model):
             # User defined an ending date for this event.
             #===================================================================
             return self.pub_date + self.delta <= self.endDate
-        elif self.repeated:
-            #===================================================================
-            # User defined this event to repeat forever.
-            #===================================================================
-            return True
         else:
             #===================================================================
-            # User defined this event as one time only.
+            # If true, user defined this event to repeat forever.
+            # Else, this was a one time event.
             #===================================================================
-            return False
+            return self.repeated
     
     @property
     def timeUntilEvent(self):
-        raise NotImplemented()
+        return (self.pub_date - datetime.now(self.pub_date.tzinfo)).total_seconds()
